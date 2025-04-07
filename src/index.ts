@@ -332,6 +332,9 @@ export default class FlomoSync extends Plugin {
     let contentArr = []
     memos.every((memo, idx) => {
       let content = memo.content;
+      // 添加编辑时间到内容前面
+      let editTime = moment(memo.updated_at).format("YYYY-MM-DD HH:mm");
+      
       let files = memo.files;
       // 图片markdown
       imgs = imgs.concat(files);
@@ -347,6 +350,10 @@ export default class FlomoSync extends Plugin {
       content = content.trim()
       content = new TurndownService().turndown(content);
       content = content.replaceAll('\\\[', '[').replaceAll('\\\]', ']').replaceAll('\\\_', '_').replaceAll(/(?<=#)(.+?)(?=\s)/g, "$1#");
+      
+      // 将时间添加到内容前面
+      content = `${editTime} ${content}`;
+      
       content = content.split("\n").reduce((result, line) => {
         if (line.trim() == "") {
           line = ""
