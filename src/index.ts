@@ -12,10 +12,10 @@ import "@/index.scss";
 import { Md5 } from "ts-md5";
 import TurndownService from 'turndown';
 import moment from "moment";
-
 let onSyncEndEvent: EventListener;
 const STORAGE_NAME = "flomo-sync-config";
 const FLOMO_ASSETS_DIR = "assets/flomo";
+const DIDA_API_BASE = "https://api.dida365.com/open/v1";
 const USG = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.76";
 const flomoSvg = '<svg t="1701609878223" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4530" width="200" height="200"><path d="M0 0h1024v1024H0z" fill="#FAFAFA" p-id="4531"></path><path d="M709.461 507.212H332.07V399.559h447.497l-65.422 105.264c0 2.389-2.342 2.389-4.684 2.389z m98.143-167.462H450.067l65.441-105.273c2.342 0 4.675-2.39 7.016-2.39h355.177l-65.422 105.264c0 2.399-2.342 2.399-4.684 2.399z" fill="#30CF79" p-id="4532"></path><path d="M337.91 791.912c-105.159 0-191.62-88.519-191.62-196.181s86.461-196.172 191.62-196.172c105.15 0 191.621 88.51 191.621 196.172s-86.47 196.172-191.62 196.172z m0-282.31c-46.743 0-86.47 38.276-86.47 88.518 0 47.853 37.394 88.529 86.47 88.529 49.067 0 86.462-38.286 86.462-88.529-2.342-50.242-39.727-88.519-86.471-88.519z" fill="#30CF79" p-id="4533"></path></svg>'
 const outOfSyncSvg = '<svg t="1702561931653" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="17063" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200"><path d="M624 706.3h-74.1V464c0-4.4-3.6-8-8-8h-60c-4.4 0-8 3.6-8 8v242.3H400c-6.7 0-10.4 7.7-6.3 12.9l112 141.7c3.2 4.1 9.4 4.1 12.6 0l112-141.7c4.1-5.2 0.4-12.9-6.3-12.9z" p-id="17064"></path><path d="M811.4 366.7C765.6 245.9 648.9 160 512.2 160S258.8 245.8 213 366.6C127.3 389.1 64 467.2 64 560c0 110.5 89.5 200 199.9 200H304c4.4 0 8-3.6 8-8v-60c0-4.4-3.6-8-8-8h-40.1c-33.7 0-65.4-13.4-89-37.7-23.5-24.2-36-56.8-34.9-90.6 0.9-26.4 9.9-51.2 26.2-72.1 16.7-21.3 40.1-36.8 66.1-43.7l37.9-9.9 13.9-36.6c8.6-22.8 20.6-44.1 35.7-63.4 14.9-19.2 32.6-35.9 52.4-49.9 41.1-28.9 89.5-44.2 140-44.2s98.9 15.3 140 44.2c19.9 14 37.5 30.8 52.4 49.9 15.1 19.3 27.1 40.7 35.7 63.4l13.8 36.5 37.8 10C846.1 454.5 884 503.8 884 560c0 33.1-12.9 64.3-36.3 87.7-23.4 23.4-54.5 36.3-87.6 36.3H720c-4.4 0-8 3.6-8 8v60c0 4.4 3.6 8 8 8h40.1C870.5 760 960 670.5 960 560c0-92.7-63.1-170.7-148.6-193.3z" p-id="17065"></path></svg>'
@@ -52,7 +52,7 @@ export default class FlomoSync extends Plugin {
     } 
 
     if(this.isMobile){
-     svg = svg + '<span class="b3-menu__label">flomo同步</span>'
+     svg = svg + '<span class="b3-menu__label">flomo/滴答同步</span>'
     }
     return svg;
   }
@@ -196,7 +196,7 @@ export default class FlomoSync extends Plugin {
 
 
   /**
-   * 开始同步
+   * 开始同步（flomo + 滴答清单）
    */
   async runSync() {
     // 防止快速点击、或手动和自动运行冲突。
@@ -212,42 +212,52 @@ export default class FlomoSync extends Plugin {
 
       //正在执行的图标
       this.topBarElement.innerHTML = this.getSvgHTML("iconRefresh")
-      let memos = await this.getLatestMemos();
-      // console.log(memos);      
-      if (memos.length == 0) {
-        let nowTimeText = moment().format('YYYY-MM-DD HH:mm:ss');
-        console.warn("plugin-flomo-sync:" + "暂无新数据-" + nowTimeText)
-        this.syncing = false;
-        this.topBarElement.innerHTML = this.getSvgHTML("flomo")
-        return;
+
+      const cfg = this.data[STORAGE_NAME];
+      const hasFlomo = !!(cfg.accessToken || (cfg.username && cfg.password));
+      const hasDida = !!(cfg.didaEnabled && cfg.didaToken);
+
+      // flomo / 滴答互不影响：一侧失败另一侧仍继续
+      if (hasFlomo) {
+        try {
+          let memos = await this.getLatestMemos();
+          if (memos.length == 0) {
+            let nowTimeText = moment().format('YYYY-MM-DD HH:mm:ss');
+            console.warn("plugin-flomo-sync:" + "flomo暂无新数据-" + nowTimeText)
+          } else {
+            let { contentArr, imgs } = this.handleMarkdown(memos)
+            let handleImgSuccess = await this.downloadImgs(imgs)
+            let handleContentSuccess;
+            if (handleImgSuccess) {
+              handleContentSuccess = await this.writeSiyuan(contentArr);
+            }
+            if (handleContentSuccess && handleImgSuccess) {
+              await this.writeBackTag(memos);
+            }
+            await setTimeout(async () => {
+              let nowTimeText = moment().format('YYYY-MM-DD HH:mm:ss');
+              this.data[STORAGE_NAME]["lastSyncTime"] = nowTimeText;
+              await this.saveData(STORAGE_NAME, this.data[STORAGE_NAME]);
+            }, 1000)
+          }
+        } catch (flomoErr) {
+          console.error("plugin-flomo-sync:flomo同步失败", flomoErr);
+          await this.pushErrMsg("plugin-flomo-sync:flomo同步失败：" + flomoErr);
+        }
       }
 
-      //生成markdown 和图片
-      let { contentArr, imgs } = this.handleMarkdown(memos)
-
-      // 处理图片：下载图片到思源
-      let handleImgSuccess = await this.downloadImgs(imgs)
-
-      // 处理内容：写入思源
-      let handleContentSuccess;
-      if (handleImgSuccess) {
-        // console.log(contentArr)
-        handleContentSuccess = await this.writeSiyuan(contentArr);
+      if (hasDida) {
+        try {
+          await this.runDidaSync();
+        } catch (didaErr) {
+          console.error("plugin-flomo-sync:滴答同步失败", didaErr);
+          await this.pushErrMsg("plugin-flomo-sync:滴答同步失败：" + didaErr);
+        }
       }
 
-      // 回写标签    
-      if (handleContentSuccess && handleImgSuccess) {
-        await this.writeBackTag(memos);
+      if (!hasFlomo && !hasDida) {
+        await this.pushErrMsg("plugin-flomo-sync:请至少配置 flomo 账号，或启用滴答同步并填写 Token");
       }
-
-      // 记录同步时间,间隔1秒
-      await setTimeout(async () => {
-        // console.log("记录同步时间：");
-        let nowTimeText = moment().format('YYYY-MM-DD HH:mm:ss');
-        // console.log(nowTimeText);
-        this.data[STORAGE_NAME]["lastSyncTime"] = nowTimeText;
-        await this.saveData(STORAGE_NAME, this.data[STORAGE_NAME]);
-      }, 1000)
 
       //完成后图标
       this.topBarElement.innerHTML = this.getSvgHTML("flomo")
@@ -260,6 +270,230 @@ export default class FlomoSync extends Plugin {
       this.syncing = false;
     }
 
+  }
+
+  /** 规范化滴答 Token（去掉误粘贴的 Bearer 前缀与空白） */
+  getDidaToken() {
+    let token = String(this.data[STORAGE_NAME].didaToken || "").trim();
+    if (/^bearer\s+/i.test(token)) {
+      token = token.replace(/^bearer\s+/i, "").trim();
+    }
+    return token;
+  }
+
+  /**
+   * 请求滴答 Open API。
+   * 优先走思源 forwardProxy（避免 CORS/前端拦截），失败再直连。
+   */
+  async didaRequest(path: string, method: string = "GET", body: any = undefined) {
+    const url = DIDA_API_BASE + path;
+    const token = this.getDidaToken();
+    if (!token) {
+      throw new Error("滴答 API Token 为空");
+    }
+
+    const proxyPayload: any = {
+      url,
+      method,
+      timeout: 20000,
+      contentType: "application/json",
+      headers: [{ Authorization: `Bearer ${token}` }],
+      responseEncoding: "text",
+    };
+    if (body !== undefined) {
+      proxyPayload.payload = body;
+    } else {
+      // GET 不要带 JSON body，避免部分网关异常
+      proxyPayload.payload = "";
+      proxyPayload.payloadEncoding = "text";
+    }
+
+    try {
+      const proxyRes = await fetchSyncPost("/api/network/forwardProxy", proxyPayload);
+      if (proxyRes.code !== 0) {
+        throw new Error(proxyRes.msg || "forwardProxy 返回非 0");
+      }
+      const result = proxyRes.data;
+      if (!result) {
+        throw new Error("forwardProxy 无 data");
+      }
+      const status = result.status ?? result.StatusCode ?? 0;
+      if (status >= 400) {
+        throw new Error(`HTTP ${status} body=${result.body}`);
+      }
+      if (!result.body && status >= 200 && status < 300) {
+        return null;
+      }
+      if (typeof result.body === "string") {
+        const text = result.body.trim();
+        if (!text) return null;
+        try {
+          return JSON.parse(text);
+        } catch {
+          return result.body;
+        }
+      }
+      return result.body;
+    } catch (proxyErr) {
+      // 回退直连
+      try {
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        };
+        const opts: RequestInit = { method, headers };
+        if (body !== undefined) {
+          opts.body = JSON.stringify(body);
+        }
+        const response = await fetch(url, opts);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        if (response.status === 204) {
+          return null;
+        }
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
+      } catch (directErr) {
+        throw new Error(`滴答 API 失败 path=${path} proxy=${proxyErr} direct=${directErr}`);
+      }
+    }
+  }
+
+  /**
+   * 拉取收集箱未同步任务
+   */
+  async getInboxTasks() {
+    try {
+      let data = await this.didaRequest("/project/inbox/data", "GET");
+      let tasks = (data && Array.isArray(data.tasks)) ? data.tasks : [];
+
+      // 部分账号下 inbox/data 异常时，回退 undone 接口
+      if (tasks.length === 0) {
+        try {
+          const undone = await this.didaRequest("/task/undone", "POST", { projectIds: ["inbox"] });
+          if (Array.isArray(undone)) {
+            tasks = undone;
+          } else if (undone && Array.isArray(undone.tasks)) {
+            tasks = undone.tasks;
+          }
+        } catch (undoneErr) {
+          console.warn("plugin-flomo-sync:task/undone 回退失败", undoneErr);
+        }
+      }
+
+      const lastSyncRaw = this.data[STORAGE_NAME].didaLastSyncTime;
+      const lastSyncTime = moment(lastSyncRaw, "YYYY-MM-DD HH:mm:ss", true);
+
+      const filtered = tasks.filter((task) => {
+        if (task.status === 2) {
+          return false;
+        }
+        // 仅当任务自带时间字段时才按「上次同步时间」过滤；避免 moment(undefined)=现在 的误判
+        const rawTime = task.createdTime || task.modifiedTime;
+        if (rawTime && lastSyncTime.isValid()) {
+          const tTime = moment(rawTime);
+          if (tTime.isValid() && tTime.isBefore(lastSyncTime)) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      console.log(`plugin-flomo-sync:滴答收集箱原始 ${tasks.length} 条，过滤后 ${filtered.length} 条`);
+      return filtered;
+    } catch (error) {
+      await this.pushErrMsg("plugin-flomo-sync:滴答清单拉取失败：" + error);
+      throw error;
+    }
+  }
+
+  /** 解析滴答任务建立时间（优先 createdTime，与 flomo 前缀风格一致） */
+  getDidaTaskCreatedTime(task) {
+    const raw = task.createdTime || task.modifiedTime;
+    const m = raw ? moment(raw) : null;
+    if (m && m.isValid()) {
+      return m.format("YYYY-MM-DD HH:mm");
+    }
+    return moment().format("YYYY-MM-DD HH:mm");
+  }
+
+  /** 滴答任务转 markdown 列表（写入与 flomo 相同目标页） */
+  handleDidaMarkdown(tasks) {
+    const LIST_MAX_NUM = 50;
+    let blockContent = "";
+    let contentArr = [];
+    tasks.forEach((task, idx) => {
+      // 与 flomo 相同：YYYY-MM-DD HH:mm 作为笔记前缀
+      let timeStr = this.getDidaTaskCreatedTime(task);
+      let title = (task.title || "").trim();
+      let desc = (task.content || "").trim();
+      let content = `${timeStr} 【滴答】${title}`;
+      if (desc) {
+        content += "\n" + desc;
+      }
+      content = content.split("\n").reduce((result, line) => {
+        if (line.trim() == "") {
+          line = "";
+        }
+        return result + "\t" + line + "\n";
+      }, "");
+
+      blockContent += "*  \n" + content;
+      if (((idx + 1) % LIST_MAX_NUM == 0) || (idx + 1 == tasks.length)) {
+        blockContent = blockContent.replace(/\n*$/g, "").replace(/^\n*/g, "");
+        contentArr.push(blockContent);
+        blockContent = "";
+      }
+    });
+    return contentArr;
+  }
+
+  /** 同步成功后删除滴答原任务 */
+  async deleteDidaTasks(tasks: any[]) {
+    for (const task of tasks) {
+      if (!task?.id) {
+        continue;
+      }
+      const projectId = task.projectId || "inbox";
+      await this.didaRequest(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(task.id)}`, "DELETE");
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  /** 执行滴答清单收集箱同步 */
+  async runDidaSync() {
+    if (!this.data[STORAGE_NAME].didaEnabled) {
+      return;
+    }
+    if (!this.getDidaToken()) {
+      await this.pushErrMsg("plugin-flomo-sync:已启用滴答同步但 Token 为空");
+      return;
+    }
+
+    let tasks = await this.getInboxTasks();
+    if (tasks.length === 0) {
+      const tip = "滴答收集箱暂无待同步任务（可将「滴答上次同步时间」调早后重试）。";
+      console.warn("plugin-flomo-sync:" + tip);
+      await this.pushMsg("plugin-flomo-sync:" + tip);
+      return;
+    }
+
+    let contentArr = this.handleDidaMarkdown(tasks);
+    let ok = await this.writeSiyuan(contentArr);
+    if (ok) {
+      try {
+        await this.deleteDidaTasks(tasks);
+      } catch (delErr) {
+        console.warn("plugin-flomo-sync:删除滴答原任务失败（内容已写入思源）", delErr);
+        await this.pushErrMsg("plugin-flomo-sync:内容已写入思源，但删除滴答原任务失败：" + delErr);
+      }
+      this.data[STORAGE_NAME]["didaLastSyncTime"] = moment().format("YYYY-MM-DD HH:mm:ss");
+      await this.saveData(STORAGE_NAME, this.data[STORAGE_NAME]);
+      await this.pushMsg(`plugin-flomo-sync:滴答清单已同步 ${tasks.length} 条，并已删除原任务`);
+    } else {
+      await this.pushErrMsg("plugin-flomo-sync:滴答清单写入思源失败");
+    }
   }
 
 
@@ -491,9 +725,26 @@ export default class FlomoSync extends Plugin {
 
 
   async checkNew() {
-    let memos = await this.getLatestMemos();
-    if (memos.length > 0) {
-      this.topBarElement.innerHTML = this.getSvgHTML("outOfSync")
+    try {
+      const cfg = this.data[STORAGE_NAME];
+      let hasNew = false;
+      if (cfg.accessToken || (cfg.username && cfg.password)) {
+        let memos = await this.getLatestMemos();
+        if (memos.length > 0) {
+          hasNew = true;
+        }
+      }
+      if (!hasNew && cfg.didaEnabled && cfg.didaToken) {
+        let tasks = await this.getInboxTasks();
+        if (tasks.length > 0) {
+          hasNew = true;
+        }
+      }
+      if (hasNew) {
+        this.topBarElement.innerHTML = this.getSvgHTML("outOfSync")
+      }
+    } catch (error) {
+      console.warn("plugin-flomo-sync:checkNew失败", error);
     }
   }
 
@@ -518,6 +769,9 @@ export default class FlomoSync extends Plugin {
       syncIncludeTags: "",
       syncExcludeTags: "",
 
+      didaEnabled: false,
+      didaToken: "",
+      didaLastSyncTime: moment().format("YYYY-MM-DD 00:00:00"),
     }
 
     let d = this.data[STORAGE_NAME];
@@ -531,7 +785,7 @@ export default class FlomoSync extends Plugin {
             d[k] = this.siyuanStorage["local-dailynoteid"];
           }
         }
-      }else if(k === "lastSyncTime"){
+      }else if(k === "lastSyncTime" || k === "didaLastSyncTime"){
         if(!d[k]){
           d[k] = defaultConfig[k];
         }
@@ -555,7 +809,7 @@ export default class FlomoSync extends Plugin {
     // console.log(this.siyuanStorage);
     this.topBarElement = this.addTopBar({
       icon: flomoSvg,
-      title: "flomo同步",
+      title: "flomo/滴答同步",
       position: "right",
       callback: await this.runSync.bind(this),
     });
@@ -575,9 +829,13 @@ export default class FlomoSync extends Plugin {
     let syncIncludeTagsElement = document.createElement('textarea');
     let syncExcludeTagsElement = document.createElement('textarea');
 
+    let didaEnabledElement = document.createElement('input');
+    let didaTokenElement = document.createElement('textarea');
+    let didaLastSyncTimeElement = document.createElement('textarea');
+
     this.setting = new Setting({
       width: '700px',
-      height: '500px',
+      height: '700px',
       confirmCallback: async () => {
         let d = this.data[STORAGE_NAME];
         // if (isAutoSyncElement.checked != this.data[STORAGE_NAME].isAutoSync) {
@@ -611,6 +869,10 @@ export default class FlomoSync extends Plugin {
           }
         }
 
+        if (didaEnabledElement.checked && !didaTokenElement.value.trim()) {
+          this.pushErrMsg("启用滴答同步时需要填写 API Token")
+        }
+
 
         d.username = usernameElement.value;
         d.password = passwordElement.value;
@@ -625,6 +887,10 @@ export default class FlomoSync extends Plugin {
         d.syncTagMode = syncTagModeElement.value;
         d.syncIncludeTags = syncIncludeTagsElement.value;
         d.syncExcludeTags = syncExcludeTagsElement.value;
+
+        d.didaEnabled = didaEnabledElement.checked;
+        d.didaToken = didaTokenElement.value.trim();
+        d.didaLastSyncTime = didaLastSyncTimeElement.value;
         await this.saveData(STORAGE_NAME, d);
       }
     });
@@ -796,6 +1062,50 @@ export default class FlomoSync extends Plugin {
         // accessTokenElement.readOnly = true;
         accessTokenElement.value = this.data[STORAGE_NAME].accessToken;
         return accessTokenElement;
+      },
+    });
+
+    this.setting.addItem({
+      title: "—— 滴答清单 ——",
+      description: "同步收集箱到<strong>与 flomo 相同</strong>的思源目标位置；写入成功后会<strong>删除</strong>滴答中的原任务。Token 获取：dida365.com → 头像 → 设置 → 账号 → API Token。请勿分享含 Token 的配置备份。",
+      createActionElement: () => {
+        let tip = document.createElement("span");
+        tip.className = "ft__on-surface";
+        tip.textContent = "中国版 Open API · 同步后删除";
+        return tip;
+      },
+    });
+
+    this.setting.addItem({
+      title: "启用滴答同步",
+      description: "开启后，点击顶栏同步按钮时会一并同步滴答收集箱，并在成功后删除原任务",
+      createActionElement: () => {
+        didaEnabledElement.type = "checkbox";
+        didaEnabledElement.className = "b3-switch fn__flex-center";
+        didaEnabledElement.checked = !!this.data[STORAGE_NAME].didaEnabled;
+        return didaEnabledElement;
+      },
+    });
+
+    this.setting.addItem({
+      title: "滴答 API Token",
+      description: "个人 API Token，粘贴即可（Bearer）",
+      createActionElement: () => {
+        didaTokenElement.className = "b3-text-field fn__block";
+        didaTokenElement.placeholder = "请粘贴滴答清单个人 API Token";
+        didaTokenElement.value = this.data[STORAGE_NAME].didaToken || "";
+        return didaTokenElement;
+      },
+    });
+
+    this.setting.addItem({
+      title: "滴答上次同步时间",
+      description: `有时间戳的任务会跳过早于此时间的条目。想同步收集箱里旧任务时，可改成更早时间，如 2000-01-01 00:00:00。格式 YYYY-MM-DD HH:mm:ss`,
+      createActionElement: () => {
+        didaLastSyncTimeElement.className = "b3-text-field fn__block";
+        didaLastSyncTimeElement.placeholder = "如：2000-01-01 00:00:00";
+        didaLastSyncTimeElement.value = this.data[STORAGE_NAME].didaLastSyncTime || "";
+        return didaLastSyncTimeElement;
       },
     });
 

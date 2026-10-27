@@ -11,12 +11,12 @@
     "all"
   ],
   "displayName": {
-    "default": "flomo sync",
-    "zh_CN": "浮墨同步"
+    "default": "flomo / Dida sync",
+    "zh_CN": "浮墨/滴答同步"
   },
   "description": {
-    "default": "flomo sync",
-    "zh_CN": "浮墨同步"
+    "default": "Sync flomo and Dida365 inbox to SiYuan",
+    "zh_CN": "将 flomo 与滴答清单收集箱同步到思源"
   },
   "readme": {
     "default": "README.md",
@@ -31,6 +31,6 @@
     ]
   },
   "keywords": [
-    "浮墨", "flomo","同步","sync"
+    "浮墨", "flomo", "滴答", "dida", "同步", "sync"
   ]
 }
