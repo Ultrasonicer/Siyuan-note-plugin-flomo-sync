@@ -214,7 +214,7 @@ export default class FlomoSync extends Plugin {
       this.topBarElement.innerHTML = this.getSvgHTML("iconRefresh")
 
       const cfg = this.data[STORAGE_NAME];
-      const hasFlomo = !!(cfg.accessToken || (cfg.username && cfg.password));
+      const hasFlomo = !!(cfg.flomoEnabled && (cfg.accessToken || (cfg.username && cfg.password)));
       const hasDida = !!(cfg.didaEnabled && cfg.didaToken);
 
       // flomo / 滴答互不影响：一侧失败另一侧仍继续
@@ -256,7 +256,7 @@ export default class FlomoSync extends Plugin {
       }
 
       if (!hasFlomo && !hasDida) {
-        await this.pushErrMsg("plugin-flomo-sync:请至少配置 flomo 账号，或启用滴答同步并填写 Token");
+        await this.pushErrMsg("plugin-flomo-sync:请至少启用并配置 flomo 或滴答其中一项");
       }
 
       //完成后图标
@@ -713,7 +713,7 @@ export default class FlomoSync extends Plugin {
     try {
       const cfg = this.data[STORAGE_NAME];
       let hasNew = false;
-      if (cfg.accessToken || (cfg.username && cfg.password)) {
+      if (cfg.flomoEnabled && (cfg.accessToken || (cfg.username && cfg.password))) {
         let memos = await this.getLatestMemos();
         if (memos.length > 0) {
           hasNew = true;
@@ -739,6 +739,7 @@ export default class FlomoSync extends Plugin {
     this.data[STORAGE_NAME] = await this.loadData(STORAGE_NAME) || {};
 
     let defaultConfig = {
+      flomoEnabled: true,//是否启用 flomo 同步（兼容旧配置默认开启）
       username: "",//用户名
       password: "",//密码
       lastSyncTime: moment().format("YYYY-MM-DD 00:00:00"),//上次同步时间
@@ -873,6 +874,11 @@ export default class FlomoSync extends Plugin {
       { val: "1", text: "包含标签" },
     ]);
 
+    const flomoEnabledElement = document.createElement("input");
+    flomoEnabledElement.type = "checkbox";
+    flomoEnabledElement.className = "b3-switch fn__flex-center";
+    flomoEnabledElement.checked = d.flomoEnabled !== false;
+
     const didaEnabledElement = document.createElement("input");
     didaEnabledElement.type = "checkbox";
     didaEnabledElement.className = "b3-switch fn__flex-center";
@@ -919,8 +925,9 @@ export default class FlomoSync extends Plugin {
     tabButtons.forEach((btn) => btn.addEventListener("click", () => switchTab(btn.getAttribute("data-tab"))));
     switchTab("flomo");
 
-    flomoPanel.appendChild(this.buildSettingRow("账号<code class='fn__code'>必填项</code>", "请输入 flomo 的手机号或邮箱", usernameElement));
-    flomoPanel.appendChild(this.buildSettingRow("密码<code class='fn__code'>必填项</code>", "", passwordElement));
+    flomoPanel.appendChild(this.buildSettingRow("启用 flomo 同步", "关闭后点击顶栏同步时跳过 flomo，只同步已启用的滴答", flomoEnabledElement));
+    flomoPanel.appendChild(this.buildSettingRow("账号<code class='fn__code'>启用时必填</code>", "请输入 flomo 的手机号或邮箱", usernameElement));
+    flomoPanel.appendChild(this.buildSettingRow("密码<code class='fn__code'>启用时必填</code>", "", passwordElement));
     flomoPanel.appendChild(this.buildSettingRow("上次同步时间", `为空则默认为今天0点，${today}，并会自动记录本次同步时间`, lastSyncTimeElement));
     flomoPanel.appendChild(this.buildSettingRow("写入思源位置方案", "flomo 与滴答共用此目标：daily note 或指定文档", locationModeElement));
     flomoPanel.appendChild(this.buildSettingRow("dailynote笔记本id", "右击文档树笔记本 → 打开文件位置，路径 id 即是", dailnoteNotebookElement));
@@ -962,10 +969,14 @@ export default class FlomoSync extends Plugin {
           }
         }
       }
+      if (flomoEnabledElement.checked && (!usernameElement.value.trim() || !passwordElement.value.trim()) && !accessTokenElement.value.trim()) {
+        this.pushErrMsg("启用 flomo 同步时需要填写账号密码（或 accessToken）");
+      }
       if (didaEnabledElement.checked && !didaTokenElement.value.trim()) {
         this.pushErrMsg("启用滴答同步时需要填写 API Token");
       }
 
+      cfg.flomoEnabled = flomoEnabledElement.checked;
       cfg.username = usernameElement.value;
       cfg.password = passwordElement.value;
       cfg.lastSyncTime = lastSyncTimeElement.value;
