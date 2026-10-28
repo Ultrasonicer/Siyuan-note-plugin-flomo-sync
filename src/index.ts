@@ -4,7 +4,7 @@ import {
   confirm,
   fetchSyncPost,
   openTab,
-  Setting,
+  Dialog,
   openMobileFileById,
   getFrontend
 } from "siyuan";
@@ -52,7 +52,7 @@ export default class FlomoSync extends Plugin {
     } 
 
     if(this.isMobile){
-     svg = svg + '<span class="b3-menu__label">flomo/滴答同步</span>'
+     svg = svg + '<span class="b3-menu__label">flomo+滴答同步</span>'
     }
     return svg;
   }
@@ -418,33 +418,18 @@ export default class FlomoSync extends Plugin {
     return moment().format("YYYY-MM-DD HH:mm");
   }
 
-  /** 滴答任务转 markdown 列表（写入与 flomo 相同目标页） */
+  /** 滴答任务转纯文字（不用 markdown 列表，不加来源备注） */
   handleDidaMarkdown(tasks) {
-    const LIST_MAX_NUM = 50;
-    let blockContent = "";
     let contentArr = [];
-    tasks.forEach((task, idx) => {
-      // 与 flomo 相同：YYYY-MM-DD HH:mm 作为笔记前缀
-      let timeStr = this.getDidaTaskCreatedTime(task);
-      let title = (task.title || "").trim();
-      let desc = (task.content || "").trim();
-      let content = `${timeStr} 【滴答】${title}`;
+    tasks.forEach((task) => {
+      const timeStr = this.getDidaTaskCreatedTime(task);
+      const title = (task.title || "").trim();
+      const desc = (task.content || "").trim();
+      let text = `${timeStr} ${title}`.trim();
       if (desc) {
-        content += "\n" + desc;
+        text += "\n" + desc;
       }
-      content = content.split("\n").reduce((result, line) => {
-        if (line.trim() == "") {
-          line = "";
-        }
-        return result + "\t" + line + "\n";
-      }, "");
-
-      blockContent += "*  \n" + content;
-      if (((idx + 1) % LIST_MAX_NUM == 0) || (idx + 1 == tasks.length)) {
-        blockContent = blockContent.replace(/\n*$/g, "").replace(/^\n*/g, "");
-        contentArr.push(blockContent);
-        blockContent = "";
-      }
+      contentArr.push(text);
     });
     return contentArr;
   }
@@ -809,308 +794,195 @@ export default class FlomoSync extends Plugin {
     // console.log(this.siyuanStorage);
     this.topBarElement = this.addTopBar({
       icon: flomoSvg,
-      title: "flomo/滴答同步",
+      title: "flomo+滴答同步",
       position: "right",
       callback: await this.runSync.bind(this),
     });
 
-    let usernameElement = document.createElement("textarea");
-    let passwordElement = document.createElement("textarea");
-    // let isAutoSyncElement = document.createElement('input');
-    let lastSyncTimeElement = document.createElement('textarea');
-    let syncSuccessTagElement = document.createElement('textarea');
-    let accessTokenElement = document.createElement('textarea');
-
-    let locationModeElement;//写入思源位置方案
-    let dailnoteNotebookElement = document.createElement('textarea');
-    let pageIdElement = document.createElement('textarea');
-
-    let syncTagModeElement;
-    let syncIncludeTagsElement = document.createElement('textarea');
-    let syncExcludeTagsElement = document.createElement('textarea');
-
-    let didaEnabledElement = document.createElement('input');
-    let didaTokenElement = document.createElement('textarea');
-    let didaLastSyncTimeElement = document.createElement('textarea');
-
-    this.setting = new Setting({
-      width: '700px',
-      height: '700px',
-      confirmCallback: async () => {
-        let d = this.data[STORAGE_NAME];
-        // if (isAutoSyncElement.checked != this.data[STORAGE_NAME].isAutoSync) {
-        //   if (isAutoSyncElement.checked) {
-        //     this.eventBus.on("sync-end", this.eventBusHandler.bind(this));
-        //   } else {
-        //     this.eventBus.off("sync-end", this.eventBusHandler.bind(this));
-        //   }
-        // }
-
-        if (!pageIdElement.value && locationModeElement.value == "1") {
-          this.pushErrMsg("同步到指定文档需要配置文档id")
-          // return false;
-        }
-
-        if (syncSuccessTagElement.value.length != 0) {
-          if (syncSuccessTagElement.value.includes(" ")) {
-            this.pushErrMsg("同步成功标签不能包含空格，也不能有多个，请重新配置")
-          }
-
-          if (d.syncSuccessTag === "") {
-            //加强提醒
-            let isAgree = await this.waitFunction(
-              confirm, () => true, () => false,
-              `温馨提示`,
-              `将同步成功的标签${syncSuccessTagElement.value}回写进flomo后该插件不能撤销，是否同意写入？`
-            );
-            if (!isAgree) {
-              syncSuccessTagElement.value = ""
-            }
-          }
-        }
-
-        if (didaEnabledElement.checked && !didaTokenElement.value.trim()) {
-          this.pushErrMsg("启用滴答同步时需要填写 API Token")
-        }
-
-
-        d.username = usernameElement.value;
-        d.password = passwordElement.value;
-        // d.isAutoSync = isAutoSyncElement.checked;
-        d.lastSyncTime = lastSyncTimeElement.value;
-        d.syncSuccessTag = syncSuccessTagElement.value;
-        d.accessToken = accessTokenElement.value;
-
-        d.locationMode = locationModeElement.value;
-        d.dailnoteNotebook = dailnoteNotebookElement.value;
-        d.pageId = pageIdElement.value;
-        d.syncTagMode = syncTagModeElement.value;
-        d.syncIncludeTags = syncIncludeTagsElement.value;
-        d.syncExcludeTags = syncExcludeTagsElement.value;
-
-        d.didaEnabled = didaEnabledElement.checked;
-        d.didaToken = didaTokenElement.value.trim();
-        d.didaLastSyncTime = didaLastSyncTimeElement.value;
-        await this.saveData(STORAGE_NAME, d);
-      }
-    });
-
-    this.setting.addItem({
-      title: "账号<code class='fn__code'>必填项</code>",
-      description: "请输入flomo的手机号或邮箱",
-      createActionElement: () => {
-        usernameElement.className = "b3-text-field fn__block";
-        usernameElement.placeholder = "手机或邮箱";
-        usernameElement.value = this.data[STORAGE_NAME].username;
-        return usernameElement;
-      },
-    });
-
-
-    this.setting.addItem({
-      title: "密码<code class='fn__code'>必填项</code>",
-      createActionElement: () => {
-        passwordElement.className = "b3-text-field fn__block";
-        passwordElement.placeholder = "请输入密码";
-        passwordElement.value = this.data[STORAGE_NAME].password;
-        return passwordElement;
-      },
-    });
-
-    // this.setting.addItem({
-    //   title: "是否自动同步",
-    //   description: "思源同步完成后自动同步flomo",
-    //   createActionElement: () => {
-    //     isAutoSyncElement.type = 'checkbox';
-    //     isAutoSyncElement.className = "b3-switch fn__flex-center";
-    //     isAutoSyncElement.checked = this.data[STORAGE_NAME].isAutoSync;
-    //     return isAutoSyncElement;
-    //   },
-    // });
-
-    let today = moment().format("YYYY-MM-DD 00:00:00");
-    this.setting.addItem({
-      title: "上次同步时间",
-      description: `为空则默认为今天0点，${today}，并会自动记录本次同步时间`,
-      createActionElement: () => {
-        lastSyncTimeElement.className = "b3-text-field fn__block";
-        lastSyncTimeElement.placeholder = "如有特殊要求可指定上次同步时间";
-        lastSyncTimeElement.value = this.data[STORAGE_NAME].lastSyncTime;
-        return lastSyncTimeElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "写入思源位置方案",
-      description: "放在指定库的daily notes中，或指定文档中",
-      createActionElement: () => {
-        locationModeElement = document.createElement('select')
-        locationModeElement.className = "b3-select fn__flex-center fn__size200";
-        let options = [
-          {
-            val: "0",
-            text: "指定笔记本daily note中"
-          },
-          {
-            val: "1",
-            text: "指定文档中"
-          }
-        ]
-        for (let option of options) {
-          let optionElement = document.createElement('option');
-          optionElement.value = option.val;
-          optionElement.text = option.text;
-          locationModeElement.appendChild(optionElement);
-        }
-        locationModeElement.value = this.data[STORAGE_NAME].locationMode;
-        return locationModeElement;
-      }
-    });
-
-    this.setting.addItem({
-      title: "dailynote笔记本id",
-      description: "获取方式：右击文档树的笔记本，打开文件位置，其路径id就是",
-      createActionElement: () => {
-
-        dailnoteNotebookElement.className = "b3-text-field fn__block";
-        dailnoteNotebookElement.placeholder = "请输入dailynote笔记本id，如：“20230307225200-d5v9wrx” ";
-        dailnoteNotebookElement.value = this.data[STORAGE_NAME].dailnoteNotebook;
-        return dailnoteNotebookElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "指定文档id",
-      description: "填写指定定文档id",
-      createActionElement: () => {
-        pageIdElement.className = "b3-text-field fn__block";
-        pageIdElement.placeholder = "请输入";
-        pageIdElement.value = this.data[STORAGE_NAME].pageId;
-        return pageIdElement;
-      },
-    });
-
-
-    // 同步标签方案
-    this.setting.addItem({
-      title: "同步标签方案",
-      description: "两种方案，排除标签（默认），包含标签",
-      createActionElement: () => {
-        syncTagModeElement = document.createElement('select');
-        syncTagModeElement.className = "b3-select fn__flex-center fn__size200";
-        let options = [
-          {
-            val: "0",
-            text: "排除标签"
-          },
-          {
-            val: "1",
-            text: "包含标签"
-          }
-        ]
-        for (let option of options) {
-          let optionElement = document.createElement('option');
-          optionElement.value = option.val;
-          optionElement.text = option.text;
-          syncTagModeElement.appendChild(optionElement);
-        }
-        syncTagModeElement.value = this.data[STORAGE_NAME].syncTagMode;
-        return syncTagModeElement;
-      }
-    });
-
-
-    this.setting.addItem({
-      title: "同步包含标签",
-      description: "包含以下标签才会同步进来，<code class='fn__code'>和排除标签互斥，选一即可</code>。中间用空格隔开。注意：不要加#",
-      createActionElement: () => {
-        syncIncludeTagsElement.className = "b3-text-field fn__block";
-        syncIncludeTagsElement.placeholder = "请输入同步包含标签，如：“工作 收集箱” ";
-        syncIncludeTagsElement.value = this.data[STORAGE_NAME].syncIncludeTags;
-        return syncIncludeTagsElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "同步排除标签",
-      description: "除以下标签外才会同步进来，<code class='fn__code'>和包含标签互斥，选一即可</code>。中间用空格隔开。注意：不要加#",
-      createActionElement: () => {
-        syncExcludeTagsElement.className = "b3-text-field fn__block";
-        syncExcludeTagsElement.placeholder = "同步排除标签，如：“草稿 已同步” ";
-        syncExcludeTagsElement.value = this.data[STORAGE_NAME].syncExcludeTags;
-        return syncExcludeTagsElement;
-      },
-    });
-
-    // 加强提醒，切换时，保存时再提醒一次。
-    this.setting.addItem({
-      title: "回写同步成功标签",
-      description: `将同步的记录，加一个同步后标签标识写入flomo，为空则不加。温馨提示：1. 不要加# 2.<code class="fn__code">回写flomo成功后不能批量去掉标签，根据需要谨慎填写</code>`,
-      createActionElement: () => {
-        syncSuccessTagElement.className = "b3-text-field fn__block";
-        syncSuccessTagElement.placeholder = "请输入回写同步成功标签，如：“已同步” ";
-        syncSuccessTagElement.value = this.data[STORAGE_NAME].syncSuccessTag;
-        return syncSuccessTagElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "accessToken",
-      description: "一般不填，也不修改，除非登录不起作用时可手动更改",
-      createActionElement: () => {
-        accessTokenElement.className = "b3-text-field fn__block";
-        // accessTokenElement.readOnly = true;
-        accessTokenElement.value = this.data[STORAGE_NAME].accessToken;
-        return accessTokenElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "—— 滴答清单 ——",
-      description: "同步收集箱到<strong>与 flomo 相同</strong>的思源目标位置；写入成功后会<strong>删除</strong>滴答中的原任务。Token 获取：dida365.com → 头像 → 设置 → 账号 → API Token。请勿分享含 Token 的配置备份。",
-      createActionElement: () => {
-        let tip = document.createElement("span");
-        tip.className = "ft__on-surface";
-        tip.textContent = "中国版 Open API · 同步后删除";
-        return tip;
-      },
-    });
-
-    this.setting.addItem({
-      title: "启用滴答同步",
-      description: "开启后，点击顶栏同步按钮时会一并同步滴答收集箱，并在成功后删除原任务",
-      createActionElement: () => {
-        didaEnabledElement.type = "checkbox";
-        didaEnabledElement.className = "b3-switch fn__flex-center";
-        didaEnabledElement.checked = !!this.data[STORAGE_NAME].didaEnabled;
-        return didaEnabledElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "滴答 API Token",
-      description: "个人 API Token，粘贴即可（Bearer）",
-      createActionElement: () => {
-        didaTokenElement.className = "b3-text-field fn__block";
-        didaTokenElement.placeholder = "请粘贴滴答清单个人 API Token";
-        didaTokenElement.value = this.data[STORAGE_NAME].didaToken || "";
-        return didaTokenElement;
-      },
-    });
-
-    this.setting.addItem({
-      title: "滴答上次同步时间",
-      description: `有时间戳的任务会跳过早于此时间的条目。想同步收集箱里旧任务时，可改成更早时间，如 2000-01-01 00:00:00。格式 YYYY-MM-DD HH:mm:ss`,
-      createActionElement: () => {
-        didaLastSyncTimeElement.className = "b3-text-field fn__block";
-        didaLastSyncTimeElement.placeholder = "如：2000-01-01 00:00:00";
-        didaLastSyncTimeElement.value = this.data[STORAGE_NAME].didaLastSyncTime || "";
-        return didaLastSyncTimeElement;
-      },
-    });
-
     //判断是否有新数据
     await this.checkNew()
+  }
+
+  /** 构建设置行（textarea 上下排布，其余左右排布） */
+  private buildSettingRow(titleHtml: string, descHtml: string, actionEl: HTMLElement) {
+    const isBlock = actionEl.tagName === "TEXTAREA";
+    const row = document.createElement(actionEl.classList.contains("b3-switch") ? "label" : "div");
+    if (isBlock) {
+      row.className = "b3-label config__item";
+      row.innerHTML = `<div class="fn__block">${titleHtml}</div>` +
+        (descHtml ? `<div class="b3-label__text">${descHtml}</div>` : "");
+      actionEl.classList.add("fn__block");
+      row.appendChild(actionEl);
+    } else {
+      row.className = "fn__flex b3-label config__item";
+      const left = document.createElement("div");
+      left.className = "fn__flex-1";
+      left.innerHTML = `<div class="fn__flex">${titleHtml}</div>` +
+        (descHtml ? `<div class="b3-label__text">${descHtml}</div>` : "");
+      row.appendChild(left);
+      const space = document.createElement("div");
+      space.className = "fn__space";
+      row.appendChild(space);
+      actionEl.classList.add("fn__flex-center");
+      row.appendChild(actionEl);
+    }
+    return row;
+  }
+
+  private createTextArea(value: string, placeholder = "") {
+    const el = document.createElement("textarea");
+    el.className = "b3-text-field fn__block";
+    el.placeholder = placeholder;
+    el.value = value || "";
+    return el;
+  }
+
+  private createSelect(value: string, options: { val: string, text: string }[]) {
+    const el = document.createElement("select");
+    el.className = "b3-select fn__flex-center fn__size200";
+    for (const option of options) {
+      const optionElement = document.createElement("option");
+      optionElement.value = option.val;
+      optionElement.text = option.text;
+      el.appendChild(optionElement);
+    }
+    el.value = value;
+    return el;
+  }
+
+  /** 自定义双 Tab 设置：flomo / 滴答 */
+  openSetting() {
+    const d = this.data[STORAGE_NAME] || {};
+    const today = moment().format("YYYY-MM-DD 00:00:00");
+
+    const usernameElement = this.createTextArea(d.username, "手机或邮箱");
+    const passwordElement = this.createTextArea(d.password, "请输入密码");
+    const lastSyncTimeElement = this.createTextArea(d.lastSyncTime, "如有特殊要求可指定上次同步时间");
+    const syncSuccessTagElement = this.createTextArea(d.syncSuccessTag, "请输入回写同步成功标签，如：“已同步”");
+    const accessTokenElement = this.createTextArea(d.accessToken, "");
+    const dailnoteNotebookElement = this.createTextArea(d.dailnoteNotebook, "请输入 dailynote 笔记本 id");
+    const pageIdElement = this.createTextArea(d.pageId, "请输入文档 id");
+    const syncIncludeTagsElement = this.createTextArea(d.syncIncludeTags, "如：“工作 收集箱”");
+    const syncExcludeTagsElement = this.createTextArea(d.syncExcludeTags, "如：“草稿 已同步”");
+    const locationModeElement = this.createSelect(d.locationMode || "0", [
+      { val: "0", text: "指定笔记本 daily note 中" },
+      { val: "1", text: "指定文档中" },
+    ]);
+    const syncTagModeElement = this.createSelect(d.syncTagMode || "0", [
+      { val: "0", text: "排除标签" },
+      { val: "1", text: "包含标签" },
+    ]);
+
+    const didaEnabledElement = document.createElement("input");
+    didaEnabledElement.type = "checkbox";
+    didaEnabledElement.className = "b3-switch fn__flex-center";
+    didaEnabledElement.checked = !!d.didaEnabled;
+    const didaTokenElement = this.createTextArea(d.didaToken || "", "请粘贴滴答清单个人 API Token");
+    const didaLastSyncTimeElement = this.createTextArea(d.didaLastSyncTime || "", "如：2000-01-01 00:00:00");
+
+    const dialog = new Dialog({
+      title: "flomo+滴答 同步设置",
+      width: this.isMobile ? "92vw" : "720px",
+      height: "80vh",
+      content: `
+        <div class="b3-dialog__content flomo-dida-setting">
+          <div class="flomo-dida-setting__tabs fn__flex">
+            <button type="button" class="b3-button b3-button--outline" data-tab="flomo">flomo</button>
+            <div class="fn__space"></div>
+            <button type="button" class="b3-button b3-button--outline" data-tab="dida">滴答</button>
+          </div>
+          <div class="flomo-dida-setting__panel" data-panel="flomo"></div>
+          <div class="flomo-dida-setting__panel" data-panel="dida" style="display:none"></div>
+        </div>
+        <div class="b3-dialog__action">
+          <button class="b3-button b3-button--cancel">${(window as any).siyuan?.languages?.cancel || "取消"}</button>
+          <div class="fn__space"></div>
+          <button class="b3-button b3-button--text" data-type="confirm">${(window as any).siyuan?.languages?.save || "保存"}</button>
+        </div>
+      `,
+    });
+
+    const contentEl = dialog.element.querySelector(".flomo-dida-setting") as HTMLElement;
+    const flomoPanel = contentEl.querySelector('[data-panel="flomo"]') as HTMLElement;
+    const didaPanel = contentEl.querySelector('[data-panel="dida"]') as HTMLElement;
+    const tabButtons = Array.from(contentEl.querySelectorAll("[data-tab]")) as HTMLButtonElement[];
+
+    const switchTab = (name: string) => {
+      flomoPanel.style.display = name === "flomo" ? "" : "none";
+      didaPanel.style.display = name === "dida" ? "" : "none";
+      tabButtons.forEach((btn) => {
+        const active = btn.getAttribute("data-tab") === name;
+        btn.classList.toggle("b3-button--text", active);
+        btn.classList.toggle("b3-button--outline", !active);
+      });
+    };
+    tabButtons.forEach((btn) => btn.addEventListener("click", () => switchTab(btn.getAttribute("data-tab"))));
+    switchTab("flomo");
+
+    flomoPanel.appendChild(this.buildSettingRow("账号<code class='fn__code'>必填项</code>", "请输入 flomo 的手机号或邮箱", usernameElement));
+    flomoPanel.appendChild(this.buildSettingRow("密码<code class='fn__code'>必填项</code>", "", passwordElement));
+    flomoPanel.appendChild(this.buildSettingRow("上次同步时间", `为空则默认为今天0点，${today}，并会自动记录本次同步时间`, lastSyncTimeElement));
+    flomoPanel.appendChild(this.buildSettingRow("写入思源位置方案", "flomo 与滴答共用此目标：daily note 或指定文档", locationModeElement));
+    flomoPanel.appendChild(this.buildSettingRow("dailynote笔记本id", "右击文档树笔记本 → 打开文件位置，路径 id 即是", dailnoteNotebookElement));
+    flomoPanel.appendChild(this.buildSettingRow("指定文档id", "写入位置方案选「指定文档」时填写", pageIdElement));
+    flomoPanel.appendChild(this.buildSettingRow("同步标签方案", "排除标签（默认）或包含标签", syncTagModeElement));
+    flomoPanel.appendChild(this.buildSettingRow("同步包含标签", "与排除标签互斥；空格分隔；不要加 #", syncIncludeTagsElement));
+    flomoPanel.appendChild(this.buildSettingRow("同步排除标签", "与包含标签互斥；空格分隔；不要加 #", syncExcludeTagsElement));
+    flomoPanel.appendChild(this.buildSettingRow("回写同步成功标签", "为空则不加。不要加 #；回写后不能批量去掉，请谨慎填写", syncSuccessTagElement));
+    flomoPanel.appendChild(this.buildSettingRow("accessToken", "一般不填；登录异常时可手动更改", accessTokenElement));
+
+    didaPanel.appendChild(this.buildSettingRow("启用滴答同步", "开启后与 flomo 一并同步收集箱；写入成功后删除原任务", didaEnabledElement));
+    didaPanel.appendChild(this.buildSettingRow("滴答 API Token", "dida365.com → 头像 → 设置 → 账号 → API Token。请勿分享含 Token 的备份", didaTokenElement));
+    didaPanel.appendChild(this.buildSettingRow("滴答上次同步时间", "有时间戳的任务会跳过更早条目；可改成 2000-01-01 00:00:00 同步旧任务", didaLastSyncTimeElement));
+    const sharedTip = document.createElement("div");
+    sharedTip.className = "b3-label__text";
+    sharedTip.style.padding = "8px 0";
+    sharedTip.textContent = "写入思源位置与 flomo 共用，请在「flomo」Tab 中配置。";
+    didaPanel.appendChild(sharedTip);
+
+    const btns = dialog.element.querySelectorAll(".b3-dialog__action .b3-button");
+    btns[0].addEventListener("click", () => dialog.destroy());
+    btns[1].addEventListener("click", async () => {
+      const cfg = this.data[STORAGE_NAME];
+      if (!pageIdElement.value && locationModeElement.value == "1") {
+        this.pushErrMsg("同步到指定文档需要配置文档id");
+      }
+      if (syncSuccessTagElement.value.length != 0) {
+        if (syncSuccessTagElement.value.includes(" ")) {
+          this.pushErrMsg("同步成功标签不能包含空格，也不能有多个，请重新配置");
+        }
+        if (cfg.syncSuccessTag === "") {
+          let isAgree = await this.waitFunction(
+            confirm, () => true, () => false,
+            `温馨提示`,
+            `将同步成功的标签${syncSuccessTagElement.value}回写进flomo后该插件不能撤销，是否同意写入？`
+          );
+          if (!isAgree) {
+            syncSuccessTagElement.value = "";
+          }
+        }
+      }
+      if (didaEnabledElement.checked && !didaTokenElement.value.trim()) {
+        this.pushErrMsg("启用滴答同步时需要填写 API Token");
+      }
+
+      cfg.username = usernameElement.value;
+      cfg.password = passwordElement.value;
+      cfg.lastSyncTime = lastSyncTimeElement.value;
+      cfg.syncSuccessTag = syncSuccessTagElement.value;
+      cfg.accessToken = accessTokenElement.value;
+      cfg.locationMode = locationModeElement.value;
+      cfg.dailnoteNotebook = dailnoteNotebookElement.value;
+      cfg.pageId = pageIdElement.value;
+      cfg.syncTagMode = syncTagModeElement.value;
+      cfg.syncIncludeTags = syncIncludeTagsElement.value;
+      cfg.syncExcludeTags = syncExcludeTagsElement.value;
+      cfg.didaEnabled = didaEnabledElement.checked;
+      cfg.didaToken = didaTokenElement.value.trim();
+      cfg.didaLastSyncTime = didaLastSyncTimeElement.value;
+      await this.saveData(STORAGE_NAME, cfg);
+      dialog.destroy();
+    });
   }
 
   async onunload() {

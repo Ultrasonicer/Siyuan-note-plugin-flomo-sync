@@ -17,10 +17,25 @@
         justify-content: center;
         align-items: center;
     }
-
     &__time {
         background: var(--b3-card-info-background);
         border-radius: 4px;
         padding: 2px 8px;
+    }
+}
+
+.flomo-dida-setting {
+    &__tabs {
+        margin-bottom: 12px;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--b3-theme-background);
+        padding-bottom: 8px;
+    }
+
+    &__panel {
+        max-height: calc(80vh - 160px);
+        overflow: auto;
     }
 }
